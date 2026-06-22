@@ -1,42 +1,6 @@
 {
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:rls": "vitest run tests/rls.test.ts",
-    "test:e2e": "playwright test"
-  },
-  "dependencies": {
-    "@supabase/ssr": "latest",
-    "@supabase/supabase-js": "latest",
-    "@radix-ui/react-slot": "latest",
-    "class-variance-authority": "latest",
-    "clsx": "latest",
-    "lucide-react": "latest",
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "server-only": "latest",
-    "tailwind-merge": "latest",
-    "zod": "latest"
-  },
-  "devDependencies": {
-    "@testing-library/react": "latest",
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "autoprefixer": "latest",
-    "eslint": "latest",
-    "eslint-config-next": "latest",
-    "jsdom": "latest",
-    "postcss": "latest",
-    "prettier": "latest",
-    "tailwindcss": "latest",
-    "typescript": "latest",
-    "vitest": "latest",
-    "@playwright/test": "latest"
-  }
+  "scripts": {"dev":"next dev","build":"next build","start":"next start","lint":"next lint","typecheck":"tsc --noEmit","test":"vitest run","test:rls":"vitest run tests/rls.integration.test.ts","test:e2e":"playwright test"},
+  "dependencies": {"@supabase/ssr":"0.5.2","@supabase/supabase-js":"2.48.1","@radix-ui/react-slot":"1.1.1","class-variance-authority":"0.7.1","clsx":"2.1.1","lucide-react":"0.468.0","next":"14.2.23","react":"18.3.1","react-dom":"18.3.1","server-only":"0.0.1","tailwind-merge":"2.5.5","zod":"3.24.1"},
+  "devDependencies": {"@playwright/test":"1.49.1","@testing-library/react":"16.1.0","@types/node":"22.10.2","@types/react":"18.3.18","@types/react-dom":"18.3.5","autoprefixer":"10.4.20","eslint":"8.57.1","eslint-config-next":"14.2.23","jsdom":"25.0.1","postcss":"8.4.49","prettier":"3.4.2","tailwindcss":"3.4.17","typescript":"5.6.3","vitest":"2.1.8"},
+  "engines": {"node": ">=20.11.0"}
 }
