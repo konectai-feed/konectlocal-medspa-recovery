@@ -1,0 +1,4 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+const sql = readFileSync('supabase/migrations/0001_foundation.sql','utf8');
+describe('RLS migration coverage', () => { for (const table of ['leads','assessment_sessions','assessments','revenue_leaks','lead_events','formula_versions','benchmark_versions','consent_records','report_links','sales_notes','lead_assignments','integration_jobs','admin_users']) { it(`${table} has RLS enabled and no anon policy`, () => { expect(sql).toContain(`alter table public.${table} enable row level security`); expect(sql).not.toMatch(new RegExp(`on public\\.${table}[\\s\\S]*to anon`, 'i')); }); } it('defines role-aware admin helpers', () => { expect(sql).toContain('public.current_admin_role'); expect(sql).toContain('sales_rep'); expect(sql).toContain('sales_manager'); expect(sql).toContain('analyst'); expect(sql).toContain('admin'); }); });
