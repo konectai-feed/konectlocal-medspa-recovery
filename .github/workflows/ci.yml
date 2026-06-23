@@ -34,6 +34,13 @@ jobs:
       - name: Start local Supabase
         run: npx supabase@2.107.0 start
 
+      - name: Export local Supabase credentials
+        run: |
+          eval "$(npx supabase@2.107.0 status -o env)"
+          echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
+
       - name: Apply and validate Supabase migrations
         run: |
           npx supabase@2.107.0 db reset --local
