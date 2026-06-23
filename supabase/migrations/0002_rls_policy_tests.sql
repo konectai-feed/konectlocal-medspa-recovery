@@ -1,0 +1,1 @@
+-- Optional pgTAP-style assertions can be added in Supabase CI. Core RLS coverage is verified by Vitest in tests/rls.test.ts.

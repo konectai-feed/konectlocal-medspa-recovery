@@ -1,0 +1,1 @@
+export default function AdminPage() { return <section><h1 className="text-3xl font-bold">Protected Admin Shell</h1><p className="mt-2 text-white/80">Lead operations, formulas, integrations, and reporting controls will be implemented in later builds.</p></section>; }
