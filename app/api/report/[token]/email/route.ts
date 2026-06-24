@@ -12,5 +12,6 @@ export async function POST(request: Request, { params }: { params: { token: stri
   }
 
   await supabase.from('report_deliveries').insert({ assessment_id: reportLink.assessment_id, lead_id: body.leadId ?? null, delivery_type: 'results_email', channel: 'email', status: 'sent' });
+  await supabase.from('report_links').update({ last_accessed_at: new Date().toISOString() }).eq('assessment_id', reportLink.assessment_id);
   return NextResponse.json({ ok: true });
 }

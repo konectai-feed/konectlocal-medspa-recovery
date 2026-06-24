@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getPackageConfig, normalizePackageKey } from '@/lib/commerce/catalog';
@@ -6,6 +5,8 @@ import { buildCheckoutMetadata, verifyCheckoutToken } from '@/lib/commerce/check
 import { hashToken } from '@/lib/assessment/service';
 import { createSupabaseServiceRoleClient } from '@/lib/supabase/service-role';
 import { recordSessionEvent } from '@/lib/assessment/service';
+import { applyPromotionToCheckout } from '@/lib/commerce/promotions';
+import { createCheckoutProvider } from '@/lib/commerce/checkout-provider';
 
 const checkoutSchema = z.object({
   reportToken: z.string().optional(),
@@ -57,12 +58,21 @@ export async function POST(request: Request) {
       await supabase.from('lead_events').insert([{ lead_id: leadId, assessment_id: assessmentId, event_type: 'checkout_started', event_data: { packageKey: normalizedPackage, source, promotionCode }, source: 'web' }]);
     }
 
+    const promotionResult = applyPromotionToCheckout(promotionCode, { packageKey: normalizedPackage, packagePrice: packageConfig.monthlyPrice });
     const successUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/checkout/cancelled`;
     const metadata = buildCheckoutMetadata({ leadId: leadId ?? '', assessmentId: assessmentId ?? '', packageKey: normalizedPackage, campaignSource: source, reportToken });
 
-    const checkoutSessionId = `cs_${crypto.randomUUID().replace(/-/g, '')}`;
-    const checkoutUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/checkout/success?session_id=${checkoutSessionId}`;
+    const checkoutProvider = createCheckoutProvider();
+    const { checkoutSessionId, checkoutUrl, provider } = await checkoutProvider.createCheckoutSession({
+      packageKey: normalizedPackage,
+      successUrl,
+      cancelUrl,
+      metadata: {
+        ...metadata,
+        promotion_code: promotionCode ?? null,
+      },
+    });
 
     await supabase.from('checkout_sessions').insert({
       lead_id: leadId,
@@ -71,8 +81,20 @@ export async function POST(request: Request) {
       stripe_checkout_session_id: checkoutSessionId,
       status: 'started',
       expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
-      metadata: { ...metadata, package_display_name: packageConfig.displayName, promotion_code: promotionCode ?? null, source: source ?? null },
+      metadata: { ...metadata, package_display_name: packageConfig.displayName, promotion_code: promotionCode ?? null, source: source ?? null, promotion_discount_percent: promotionResult.metadata.discountPercent, promotion_discount_amount: promotionResult.metadata.discountAmount, promotion_final_amount: promotionResult.metadata.finalAmount },
     });
+
+    if (leadId && promotionCode) {
+      await supabase.from('promotion_redemptions').insert({
+        lead_id: leadId,
+        promotion_code: promotionCode,
+        discount_type: promotionResult.metadata.discountPercent > 0 ? 'percent' : 'none',
+        discount_value: promotionResult.metadata.discountPercent,
+        discount_amount_applied: promotionResult.metadata.discountAmount,
+        campaign_source: source ?? null,
+        status: promotionResult.valid ? 'entered' : 'rejected',
+      });
+    }
 
     const response = {
       ok: true,
@@ -81,8 +103,10 @@ export async function POST(request: Request) {
       cancelUrl,
       checkoutSessionId,
       checkoutUrl,
+      checkoutProvider: provider,
       metadata,
       promotionCode,
+      promotion: promotionResult.metadata,
     };
 
     return NextResponse.json(response);

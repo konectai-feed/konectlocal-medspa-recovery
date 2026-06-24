@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { fetchReportByToken, createReportViewEvent } from '@/lib/assessment/service';
+import { getResultsPageCtaHierarchy } from '@/lib/commerce/results-cta';
 
 export async function GET(request: Request, { params }: { params: { token: string } }) {
   const token = params.token;
@@ -13,5 +14,9 @@ export async function GET(request: Request, { params }: { params: { token: strin
   }
 
   await createReportViewEvent(token);
-  return NextResponse.json(report);
+  const answers = (report.assessment.answers ?? {}) as Record<string, unknown>;
+  const locationCountRaw = answers.locationCount ?? answers.location_count ?? answers.locations;
+  const locationCount = typeof locationCountRaw === 'number' ? locationCountRaw : Number(locationCountRaw ?? 1);
+  const cta = getResultsPageCtaHierarchy({ locationCount: Number.isFinite(locationCount) ? locationCount : 1, packageKey: report.assessment.recommended_package });
+  return NextResponse.json({ ...report, cta });
 }

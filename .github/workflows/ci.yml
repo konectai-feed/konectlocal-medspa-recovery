@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - build/01-foundation-database
+      - build/04a-commerce-integrations
 
 jobs:
   build-test:
@@ -32,19 +33,19 @@ jobs:
       - run: npm run build
 
       - name: Start local Supabase
-        run: npx supabase@2.107.0 start
+        run: npx --yes supabase@2.107.0 start -x studio,imgproxy,storage-api,vector,edge-runtime,logflare,supavisor
 
       - name: Export local Supabase credentials
         run: |
-          eval "$(npx supabase@2.107.0 status -o env)"
+          eval "$(npx --yes supabase@2.107.0 status -o env)"
           echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
           echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
           echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
 
       - name: Apply and validate Supabase migrations
         run: |
-          npx supabase@2.107.0 db reset --local
-          npx supabase@2.107.0 db lint --local
+          npx --yes supabase@2.107.0 db reset --local
+          npx --yes supabase@2.107.0 db lint --local
 
       - name: RLS integration tests
         run: npm run test:rls
@@ -56,4 +57,4 @@ jobs:
 
       - name: Stop local Supabase
         if: always()
-        run: npx supabase@2.107.0 stop
+        run: npx --yes supabase@2.107.0 stop

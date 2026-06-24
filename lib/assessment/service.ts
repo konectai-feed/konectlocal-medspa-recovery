@@ -4,6 +4,7 @@ import { createSupabaseServiceRoleClient } from '@/lib/supabase/service-role';
 import { calculateAssessmentResult } from './calculate';
 import { assessmentQuestionOptions } from './config';
 import type { AssessmentAnswers, EditedAssumptions } from './types';
+import { dispatchInternalAlert } from '@/lib/integrations/alerts';
 
 const HASH_ALGORITHM = 'sha256';
 
@@ -178,6 +179,15 @@ export async function completeAssessmentSession(token: string) {
 
   if (assessmentResult.isHotLead) {
     await supabase.rpc('mark_lead_hot', { p_lead_id: session.lead_id });
+    await dispatchInternalAlert({
+      type: 'hot_lead',
+      leadId: session.lead_id,
+      assessmentId,
+      score: assessmentResult.recoveryScore,
+      metadata: {
+        recommendedPackage: assessmentResult.recommendedPackage,
+      },
+    });
   }
 
   return { assessmentResult, reportToken };

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { createSupabaseServiceRoleClient } from '@/lib/supabase/service-role';
 import { hashToken } from '@/lib/assessment/service';
 import { recordSessionEvent } from '@/lib/assessment/service';
+import { createAISalesAdapter } from '@/lib/ai-sales/provider';
 
 const conversationSchema = z.object({
   leadId: z.string().min(1),
@@ -26,8 +27,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unable to create conversation' }, { status: 500 });
   }
 
-  const action = parsed.data.message.toLowerCase().includes('checkout') || parsed.data.message.toLowerCase().includes('buy') ? 'open_checkout' : parsed.data.message.toLowerCase().includes('schedule') || parsed.data.message.toLowerCase().includes('book') ? 'schedule_review' : 'none';
-  await supabase.from('ai_sales_messages').insert({ conversation_id: conversation.id, role: 'user', message: parsed.data.message, action_suggestion: action });
-  await recordSessionEvent({ sessionId: null, assessmentId: parsed.data.assessmentId ?? null, leadId: parsed.data.leadId, eventType: 'ai_sales_chat_opened', eventData: { message: parsed.data.message, action }, source: 'web' });
-  return NextResponse.json({ conversationToken: token, action });
+  const adapter = createAISalesAdapter();
+  const result = await adapter.generateReply({ message: parsed.data.message, leadContext: { leadId: parsed.data.leadId, assessmentId: parsed.data.assessmentId ?? null } });
+  await supabase.from('ai_sales_messages').insert({ conversation_id: conversation.id, role: 'user', message: parsed.data.message, action_suggestion: result.action });
+  await recordSessionEvent({ sessionId: null, assessmentId: parsed.data.assessmentId ?? null, leadId: parsed.data.leadId, eventType: 'ai_sales_chat_opened', eventData: { message: parsed.data.message, action: result.action, safe: result.safe }, source: 'web' });
+  return NextResponse.json({ conversationToken: token, action: result.action, reply: result.reply, safe: result.safe });
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { serverEnv } from '@/lib/env.server';
+import { processCheckoutAbandonment } from '@/lib/commerce/abandonment';
 
 const bodySchema = z.object({
   secret: z.string().optional(),
@@ -13,5 +14,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  return NextResponse.json({ ok: true, processed: 0 });
+  const abandonmentResult = await processCheckoutAbandonment();
+  return NextResponse.json({ ok: true, processed: abandonmentResult.processed });
 }
