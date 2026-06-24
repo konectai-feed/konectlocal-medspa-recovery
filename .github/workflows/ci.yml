@@ -32,6 +32,11 @@ jobs:
       - run: npm run test
       - run: npm run build
 
+      - name: Preseed Supabase PostgREST image
+        run: |
+          docker pull ghcr.io/supabase/postgrest:v14.13
+          docker tag ghcr.io/supabase/postgrest:v14.13 public.ecr.aws/supabase/postgrest:v14.13
+
       - name: Start local Supabase
         run: npx --yes supabase@2.107.0 start -x studio,imgproxy,storage-api,vector,edge-runtime,logflare,supavisor
 
