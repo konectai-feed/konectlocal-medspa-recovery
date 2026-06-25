@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AuthFailureError, runBrevoBootstrap } from '@/scripts/setup-brevo';
+import { ATTRIBUTES, AuthFailureError, runBrevoBootstrap } from '@/scripts/setup-brevo';
 
 type MockResponse = {
   status: number;
@@ -166,7 +166,31 @@ describe('setup-brevo bootstrap', () => {
     ]);
 
     await runBrevoBootstrap({ apiKey: 'test-key', fetchFn: fetchMock as unknown as typeof fetch, logger: { log: vi.fn(), error: vi.fn() } });
-    expect(calls.filter((call) => call.url.includes('/contacts/attributes/normal/') && call.init?.method === 'POST').length).toBe(35);
+
+    const attributeCreateCalls = calls.filter(
+      (call) => call.url.includes('/contacts/attributes/normal/') && call.init?.method === 'POST',
+    );
+    expect(attributeCreateCalls.length).toBe(35);
+
+    const payloadTypes = attributeCreateCalls
+      .map((call) => JSON.parse(String(call.init?.body ?? '{}')) as { type?: string })
+      .map((body) => body.type);
+
+    expect(payloadTypes.every((type) => ['text', 'float', 'date', 'boolean'].includes(String(type)))).toBe(true);
+    expect(payloadTypes.some((type) => type === 'text')).toBe(true);
+    expect(payloadTypes.some((type) => type === 'float')).toBe(true);
+    expect(payloadTypes.some((type) => type === 'date')).toBe(true);
+    expect(payloadTypes.some((type) => type === 'boolean')).toBe(true);
+
+    const businessNameCall = attributeCreateCalls.find((call) => call.url.endsWith('/contacts/attributes/normal/BUSINESS_NAME'));
+    expect(businessNameCall).toBeDefined();
+    expect(JSON.parse(String(businessNameCall?.init?.body ?? '{}'))).toEqual({ type: 'text' });
+
+    for (const attribute of ATTRIBUTES) {
+      const call = attributeCreateCalls.find((entry) => entry.url.endsWith(`/contacts/attributes/normal/${attribute.name}`));
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.init?.body ?? '{}'))).toEqual({ type: attribute.type });
+    }
   });
 
   it('fails on incompatible attribute types', async () => {

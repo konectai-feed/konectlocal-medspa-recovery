@@ -117,7 +117,7 @@ export const ATTRIBUTES: AttributeDefinition[] = [
 ];
 
 function toBrevoAttributeType(type: AttributeType): string {
-  return type.toUpperCase();
+  return type;
 }
 
 function delay(ms: number) {
