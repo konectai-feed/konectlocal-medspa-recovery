@@ -8,3 +8,4 @@ test-results
 .DS_Store
 tsconfig.tsbuildinfo
 .env.local
+.brevo.generated.env
