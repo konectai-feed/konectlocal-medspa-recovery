@@ -25,6 +25,14 @@ Run migrations in order from `supabase/migrations` against an empty Supabase pro
 - `npm run test:e2e`
 - `npm run build`
 
+## Build 4B onboarding and activation
+- Customer onboarding access is tokenized through `/onboarding/[token]` and server-side token validation APIs.
+- Onboarding status transitions are enforced by a status machine (`required` through `active`, with delayed/cancelled exception paths).
+- Completion percentage is calculated server-side from package/location-aware required fields.
+- Admin activation operations are exposed under `/admin/activations` and guarded by role checks plus optional `ADMIN_EMAIL_ALLOWLIST`.
+- Vendasta preparation is dry-run by default and remains live-disabled unless `VENDASTA_PROVISIONING_ENABLED=true`.
+- Brevo lifecycle updates are queued through integration jobs so provider failures do not corrupt internal transitions.
+
 ## Deployment
 Deploy to Vercel with the variables in `.env.example`. `SUPABASE_SERVICE_ROLE_KEY` must be configured only as a server-side secret and is imported solely from `lib/supabase/service-role.ts`.
 

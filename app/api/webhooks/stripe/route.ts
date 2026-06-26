@@ -5,6 +5,16 @@ import { createSupabaseServiceRoleClient } from '@/lib/supabase/service-role';
 import { buildIntegrationIdempotencyKey } from '@/lib/commerce/integrations';
 import { getStripeWebhookEventContext, isSupportedStripeWebhookEvent } from '@/lib/commerce/stripe-webhook';
 import { dispatchInternalAlert } from '@/lib/integrations/alerts';
+import { createOrUpdateOnboardingFromPurchase, issueOnboardingToken } from '@/lib/onboarding/service';
+
+function deriveLocationCountFromAssessmentAnswers(answers: unknown) {
+  if (!answers || typeof answers !== 'object') return 1;
+  const raw = (answers as Record<string, unknown>).location_count_band;
+  if (raw === 'ten_plus') return 10;
+  if (raw === 'four_nine') return 5;
+  if (raw === 'two_three') return 2;
+  return 1;
+}
 
 function verifyStripeSignature(rawBody: string, signatureHeader: string, secret: string) {
   const elements = signatureHeader.split(',');
@@ -54,6 +64,73 @@ export async function POST(request: Request) {
     if ((payload.type === 'customer.subscription.created' || payload.type === 'customer.subscription.updated') && context.stripeSubscriptionId) {
       await supabase.from('purchases').update({ stripe_subscription_id: context.stripeSubscriptionId, stripe_customer_id: context.stripeCustomerId }).eq('stripe_customer_id', context.stripeCustomerId);
       await supabase.from('subscriptions').update({ stripe_customer_id: context.stripeCustomerId, latest_invoice_id: context.stripeInvoiceId }).eq('stripe_subscription_id', context.stripeSubscriptionId);
+
+      const { data: purchase } = await supabase
+        .from('purchases')
+        .select('id,lead_id,assessment_id,package_key,stripe_customer_id,payment_status,purchase_status')
+        .eq('stripe_subscription_id', context.stripeSubscriptionId)
+        .maybeSingle();
+
+      const { data: assessment } = purchase?.assessment_id
+        ? await supabase
+          .from('assessments')
+          .select('answers')
+          .eq('id', purchase.assessment_id)
+          .maybeSingle()
+        : { data: null };
+
+      const derivedLocationCount = deriveLocationCountFromAssessmentAnswers(assessment?.answers ?? null);
+
+      const { data: subscription } = await supabase
+        .from('subscriptions')
+        .select('id,status')
+        .eq('stripe_subscription_id', context.stripeSubscriptionId)
+        .maybeSingle();
+
+      if (purchase?.id && purchase.lead_id) {
+        const { data: existingActivation } = await supabase
+          .from('activation_records')
+          .select('id')
+          .eq('purchase_id', purchase.id)
+          .maybeSingle();
+
+        let activationId = existingActivation?.id as string | undefined;
+        if (!activationId) {
+          const { data: insertedActivation } = await supabase
+            .from('activation_records')
+            .insert({
+              purchase_id: purchase.id,
+              lead_id: purchase.lead_id,
+              assessment_id: purchase.assessment_id,
+              package_key: purchase.package_key,
+              status: 'onboarding_required',
+              requires_manual_review: false,
+            })
+            .select('id')
+            .single();
+          activationId = insertedActivation?.id;
+        }
+
+        if (activationId) {
+          const onboarding = await createOrUpdateOnboardingFromPurchase({
+            purchaseId: purchase.id,
+            subscriptionId: subscription?.id ?? null,
+            activationId,
+            leadId: purchase.lead_id,
+            assessmentId: purchase.assessment_id,
+            packageKey: String(purchase.package_key),
+            locationCount: derivedLocationCount,
+            stripeCustomerId: purchase.stripe_customer_id,
+            subscriptionStatus: subscription?.status ?? null,
+          });
+
+          await issueOnboardingToken({
+            onboardingId: onboarding.onboardingId,
+            actorType: 'system',
+            replaceCurrent: true,
+          });
+        }
+      }
     }
 
     if (payload.type === 'charge.refunded') {

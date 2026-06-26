@@ -4,6 +4,7 @@ import { getResultsPageCtaHierarchy } from '@/lib/commerce/results-cta';
 import { prepareVendastaProvisioningPayload, createVendastaProvisioningAdapter } from '@/lib/integrations/vendasta';
 import { createBrevoAdapter } from '@/lib/integrations/brevo';
 import { createAISalesAdapter } from '@/lib/ai-sales/provider';
+import { lifecycleActionForStatus } from '@/lib/onboarding/lifecycle';
 
 describe('promotion validation', () => {
   it('accepts known promotion codes and returns attributed discount metadata', () => {
@@ -62,5 +63,22 @@ describe('adapter integrations', () => {
     const result = await adapter.generateReply({ message: 'I want to buy the recovery package', leadContext: { leadId: 'lead-1', packageKey: 'lead_revenue_recovery' } });
     expect(result.safe).toBe(true);
     expect(result.action).toBe('open_checkout');
+  });
+
+  it('maps onboarding lifecycle attributes for Brevo sync jobs', () => {
+    const action = lifecycleActionForStatus({
+      status: 'ready_for_launch',
+      completionPercent: 100,
+      packageKey: 'command_center',
+      stripeCustomerId: 'cus_123',
+      subscriptionStatus: 'active',
+      locationCount: 12,
+      manualReviewRequired: true,
+      launchDate: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(action.addLists).toContain('BREVO_LIST_READY_FOR_LAUNCH');
+    expect(action.removeLists).toContain('BREVO_LIST_CONFIGURATION');
+    expect(action.attributes.ONBOARDING_COMPLETION_PERCENT).toBe(100);
   });
 });

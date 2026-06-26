@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { serverEnv } from '@/lib/env.server';
 import { processCheckoutAbandonment } from '@/lib/commerce/abandonment';
+import { processOnboardingReminders } from '@/lib/onboarding/service';
 
 const bodySchema = z.object({
   secret: z.string().optional(),
@@ -15,5 +16,12 @@ export async function POST(request: Request) {
   }
 
   const abandonmentResult = await processCheckoutAbandonment();
-  return NextResponse.json({ ok: true, processed: abandonmentResult.processed });
+  const reminderResult = await processOnboardingReminders();
+  return NextResponse.json({
+    ok: true,
+    processed: {
+      checkoutAbandonment: abandonmentResult.processed,
+      onboardingReminders: reminderResult.processed,
+    },
+  });
 }
