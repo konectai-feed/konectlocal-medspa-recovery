@@ -64,6 +64,11 @@ describe('assessment flow', () => {
   beforeEach(() => {
     localStorage.clear();
     mockPush.mockReset();
+    Element.prototype.scrollIntoView = vi.fn();
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
+    });
   });
 
   afterEach(() => {
@@ -81,6 +86,42 @@ describe('assessment flow', () => {
   });
 
   it('navigates between steps after required answers are selected', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    vi.stubGlobal('fetch', buildFetchMock());
+    render(<AssessmentFlow />);
+
+    await bootstrapComponent();
+
+    await answerCurrentStep([
+      'Number of locations - 1 location',
+      'Monthly treatment inquiries - Fewer than 25',
+      'Average first treatment or package value - Under $250',
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Inquiry response' })).toBeTruthy();
+    });
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Practice profile' })).toBeTruthy();
+    });
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+  });
+
+  it('uses immediate scrolling when reduced motion is preferred', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockReturnValue({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
+    });
+
     vi.stubGlobal('fetch', buildFetchMock());
     render(<AssessmentFlow />);
 
@@ -98,11 +139,7 @@ describe('assessment flow', () => {
       expect(screen.getByRole('heading', { name: 'Inquiry response' })).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Practice profile' })).toBeTruthy();
-    });
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' });
   });
 
   it('completes the full assessment and redirects to results', async () => {

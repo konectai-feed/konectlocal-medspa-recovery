@@ -1,6 +1,10 @@
 import { assessmentQuestionOptions, assessmentQuestionLabels, categoryDefinitions, confidenceBands, recoveryBands, packageOptions } from './config';
 import type { AssessmentAnswers, AssessmentResult, EditedAssumptions, LeakCategory } from './types';
 
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
 function findOption(questionKey: string, value: string) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const options = (assessmentQuestionOptions as Record<string, readonly any[]>)[questionKey];
@@ -62,36 +66,48 @@ function getCategoryEstimate(categoryKey: string, answers: AssessmentAnswers, as
       const missedContact = getCalculationFactor('missed_call_handling', answers.missed_call_handling ?? 'live_backup');
       const responseFactor = getCalculationFactor('digital_response_time', answers.digital_response_time ?? 'under_5_min');
       const afterHours = getCalculationFactor('after_hours_coverage', answers.after_hours_coverage ?? 'full_coverage');
-      const responseLossFactor = Math.min(0.45, missedContact * 0.4 + responseFactor * 0.4 + afterHours * 0.2);
-      const low = I * responseLossFactor * 0.1 * 0.35 * V;
-      const high = I * responseLossFactor * 0.18 * 0.45 * V;
+      const responseLossFactor = clamp(missedContact * 0.55 + responseFactor * 0.75 + afterHours * 0.45, 0.02, 0.38);
+      const additionalBookedConsultationsLow = I * responseLossFactor * 0.17;
+      const additionalBookedConsultationsHigh = I * responseLossFactor * 0.27;
+      const low = additionalBookedConsultationsLow * V;
+      const high = additionalBookedConsultationsHigh * V;
       return { low, high };
     }
     case 'unbooked_followup': {
       const recoverable = getCalculationFactor('unbooked_lead_followup', answers.unbooked_lead_followup ?? 'multichannel_sequence');
       const unbookedInquiries = I * (1 - B);
-      const low = unbookedInquiries * recoverable * 0.12 * V;
-      const high = unbookedInquiries * recoverable * 0.22 * V;
+      const additionalBookedConsultationsLow = unbookedInquiries * recoverable * 0.16;
+      const additionalBookedConsultationsHigh = unbookedInquiries * recoverable * 0.26;
+      const low = additionalBookedConsultationsLow * V;
+      const high = additionalBookedConsultationsHigh * V;
       return { low, high };
     }
     case 'no_show_recovery': {
+      const noShowGap = getCalculationFactor('no_show_rate_band', answers.no_show_rate_band ?? 'under_5');
       const recoverable = getCalculationFactor('missed_appointment_recovery', answers.missed_appointment_recovery ?? 'automated_multichannel');
       const missedAppointments = I * B * N;
-      const low = missedAppointments * recoverable * 0.3 * V;
-      const high = missedAppointments * recoverable * 0.5 * V;
+      const recoveryRate = clamp(noShowGap * 0.6 + recoverable * 0.8, 0.02, 0.4);
+      const recoveredNoShowsLow = missedAppointments * recoveryRate * 0.35;
+      const recoveredNoShowsHigh = missedAppointments * recoveryRate * 0.55;
+      const low = recoveredNoShowsLow * V;
+      const high = recoveredNoShowsHigh * V;
       return { low, high };
     }
     case 'treatment_recall': {
       const recallGap = getCalculationFactor('treatment_recall_process', answers.treatment_recall_process ?? 'automated_personalized');
-      const estimatedTreatedPatients = I * B * (1 - N) * 0.7;
-      const low = estimatedTreatedPatients * recallGap * 0.08 * V;
-      const high = estimatedTreatedPatients * recallGap * 0.14 * V;
+      const estimatedTreatedPatients = I * B * (1 - N) * 0.9;
+      const recalledPatientsLow = estimatedTreatedPatients * recallGap * 0.1;
+      const recalledPatientsHigh = estimatedTreatedPatients * recallGap * 0.18;
+      const low = recalledPatientsLow * V;
+      const high = recalledPatientsHigh * V;
       return { low, high };
     }
     case 'patient_reactivation': {
       const reactivateGap = getCalculationFactor('reactivation_process', answers.reactivation_process ?? 'monthly_or_always_on');
-      const low = dormantPool * reactivateGap * 0.004 * V;
-      const high = dormantPool * reactivateGap * 0.008 * V;
+      const reactivatedPatientsLow = dormantPool * reactivateGap * 0.008;
+      const reactivatedPatientsHigh = dormantPool * reactivateGap * 0.014;
+      const low = reactivatedPatientsLow * V;
+      const high = reactivatedPatientsHigh * V;
       return { low, high };
     }
     default:
@@ -226,11 +242,11 @@ export function calculateAssessmentResult({
 
   const rawLow = categories.reduce((sum, category) => sum + category.estimatedLow, 0);
   const rawHigh = categories.reduce((sum, category) => sum + category.estimatedHigh, 0);
-  const adjustedLow = rawLow * 0.8;
-  const adjustedHigh = rawHigh * 0.85;
-  const monthlyRevenueProxy = monthlyInquiries * averageValue;
-  const maxLow = monthlyRevenueProxy * 0.25;
-  const maxHigh = monthlyRevenueProxy * 0.4;
+  const adjustedLow = rawLow * 0.7;
+  const adjustedHigh = rawHigh * 0.84;
+  const monthlyRevenueProxy = monthlyInquiries * Math.max(bookingRate, 0.25) * averageValue;
+  const maxLow = monthlyRevenueProxy * 0.45;
+  const maxHigh = monthlyRevenueProxy * 0.65;
   const opportunityLow = Math.max(0, Math.min(adjustedLow, maxLow));
   const opportunityHigh = Math.max(opportunityLow, Math.min(adjustedHigh, maxHigh));
   const roundedLow = roundOpportunity(opportunityLow);
@@ -257,6 +273,17 @@ export function calculateAssessmentResult({
   for (const leak of categories) {
     if (positiveFindings.length >= 3) break;
     if (leak.ratio < 0.25) positiveFindings.push(`Strong performance in ${leak.label}.`);
+  }
+  if (positiveFindings.length < 3) {
+    if ((answers.review_request_process ?? 'automated_multichannel') === 'automated_multichannel') {
+      positiveFindings.push('Your review-request process is already well structured.');
+    }
+    if ((answers.reporting_visibility ?? 'full_visibility') === 'full_visibility') {
+      positiveFindings.push('Your team has strong visibility into the patient journey.');
+    }
+    if ((answers.membership_package_maturity ?? 'yes_automated') === 'yes_automated') {
+      positiveFindings.push('Your membership and package nurture process is already a strength.');
+    }
   }
 
   const routingScore = computeRoutingSignals(answers, locationCount, monthlyInquiries, recoveryScore);
@@ -292,7 +319,7 @@ export function calculateAssessmentResult({
     confidenceLevel,
     categorySeverityLabels,
     topLeaks,
-    positiveFindings: positiveFindings.slice(0, 3),
+    positiveFindings: Array.from(new Set(positiveFindings)).slice(0, 3),
     recommendedPackage,
     packageJustification,
     routingScore,
