@@ -66,7 +66,7 @@ function getCategoryEstimate(categoryKey: string, answers: AssessmentAnswers, as
       const missedContact = getCalculationFactor('missed_call_handling', answers.missed_call_handling ?? 'live_backup');
       const responseFactor = getCalculationFactor('digital_response_time', answers.digital_response_time ?? 'under_5_min');
       const afterHours = getCalculationFactor('after_hours_coverage', answers.after_hours_coverage ?? 'full_coverage');
-      const responseLossFactor = clamp(missedContact * 0.55 + responseFactor * 0.75 + afterHours * 0.45, 0.02, 0.38);
+      const responseLossFactor = clamp(missedContact * 0.55 + responseFactor * 0.75 + afterHours * 0.45, 0, 0.38);
       const additionalBookedConsultationsLow = I * responseLossFactor * 0.17;
       const additionalBookedConsultationsHigh = I * responseLossFactor * 0.27;
       const low = additionalBookedConsultationsLow * V;
@@ -86,7 +86,7 @@ function getCategoryEstimate(categoryKey: string, answers: AssessmentAnswers, as
       const noShowGap = getCalculationFactor('no_show_rate_band', answers.no_show_rate_band ?? 'under_5');
       const recoverable = getCalculationFactor('missed_appointment_recovery', answers.missed_appointment_recovery ?? 'automated_multichannel');
       const missedAppointments = I * B * N;
-      const recoveryRate = clamp(noShowGap * 0.6 + recoverable * 0.8, 0.02, 0.4);
+      const recoveryRate = clamp(noShowGap * 0.6 + recoverable * 0.8, 0, 0.4);
       const recoveredNoShowsLow = missedAppointments * recoveryRate * 0.35;
       const recoveredNoShowsHigh = missedAppointments * recoveryRate * 0.55;
       const low = recoveredNoShowsLow * V;
@@ -226,6 +226,8 @@ export function calculateAssessmentResult({
     const maxPoints = category.questions.reduce((sum, questionKey) => sum + getQuestionMaxScore(questionKey), 0);
     const ratio = maxPoints > 0 ? points / maxPoints : 0;
     const { low, high } = getCategoryEstimate(category.key, answers, { I: monthlyInquiries, V: averageValue, B: bookingRate, N: noShowRate, dormantPool });
+    const severityWeightedLow = low * ratio;
+    const severityWeightedHigh = high * ratio;
     categorySeverities[category.key] = ratio;
     categorySeverityLabels[category.key] = getCategorySeverityLabel(ratio);
     return {
@@ -235,18 +237,18 @@ export function calculateAssessmentResult({
       maxScore: maxPoints,
       ratio,
       severityLabel: getCategorySeverityLabel(ratio),
-      estimatedLow: low,
-      estimatedHigh: high,
+      estimatedLow: severityWeightedLow,
+      estimatedHigh: severityWeightedHigh,
     };
   });
 
   const rawLow = categories.reduce((sum, category) => sum + category.estimatedLow, 0);
   const rawHigh = categories.reduce((sum, category) => sum + category.estimatedHigh, 0);
-  const adjustedLow = rawLow * 0.7;
-  const adjustedHigh = rawHigh * 0.84;
+  const adjustedLow = rawLow * 0.62;
+  const adjustedHigh = rawHigh * 0.68;
   const monthlyRevenueProxy = monthlyInquiries * Math.max(bookingRate, 0.25) * averageValue;
-  const maxLow = monthlyRevenueProxy * 0.45;
-  const maxHigh = monthlyRevenueProxy * 0.65;
+  const maxLow = monthlyRevenueProxy * 0.2;
+  const maxHigh = monthlyRevenueProxy * 0.3;
   const opportunityLow = Math.max(0, Math.min(adjustedLow, maxLow));
   const opportunityHigh = Math.max(opportunityLow, Math.min(adjustedHigh, maxHigh));
   const roundedLow = roundOpportunity(opportunityLow);
