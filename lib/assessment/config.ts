@@ -165,23 +165,17 @@ export const questionOptionMap = Object.fromEntries(
 ;
 
 export const categoryDefinitions = [
-  { key: 'missed_inquiries', label: 'Missed inquiries', questions: ['missed_call_handling'] as const },
-  { key: 'slow_response', label: 'Slow response', questions: ['digital_response_time'] as const },
-  { key: 'after_hours', label: 'After-hours', questions: ['after_hours_coverage'] as const },
-  { key: 'consultation_conversion', label: 'Consultation conversion', questions: ['inquiry_booking_rate_band'] as const },
-  { key: 'unbooked_followup', label: 'Unbooked follow-up', questions: ['unbooked_lead_followup'] as const },
+  { key: 'missed_inquiries', label: 'Missed inquiries', questions: ['missed_call_handling', 'digital_response_time', 'after_hours_coverage'] as const },
+  { key: 'unbooked_followup', label: 'Unbooked lead follow-up', questions: ['inquiry_booking_rate_band', 'unbooked_lead_followup'] as const },
   { key: 'no_show_recovery', label: 'No-show recovery', questions: ['no_show_rate_band', 'missed_appointment_recovery'] as const },
   { key: 'treatment_recall', label: 'Treatment recall', questions: ['treatment_recall_process'] as const },
   { key: 'patient_reactivation', label: 'Patient reactivation', questions: ['reactivation_process'] as const },
-  { key: 'membership_nurture', label: 'Membership nurture', questions: ['membership_package_maturity'] as const },
-  { key: 'review_generation', label: 'Review generation', questions: ['review_request_process'] as const },
-  { key: 'reporting_attribution', label: 'Reporting attribution', questions: ['reporting_visibility'] as const },
 ] as const;
 
 export const confidenceBands = [
   { min: 80, label: 'High' },
   { min: 60, label: 'Medium' },
-  { min: 0, label: 'Directional' },
+  { min: 0, label: 'Low' },
 ] as const;
 
 export const recoveryBands = [
@@ -192,9 +186,9 @@ export const recoveryBands = [
 ] as const;
 
 export const packageOptions = {
-  lead_revenue_recovery_599: { id: 'lead_revenue_recovery_599', name: 'Lead Revenue Recovery', price: 599, primary: true, description: 'A focused recovery system for inquiry and booking gaps.' },
-  ai_revenue_command_center_999: { id: 'ai_revenue_command_center_999', name: 'AI Revenue Command Center', price: 999, primary: true, description: 'A premium command center for fast-growing med spas.' },
-  manual_sales_review: { id: 'manual_sales_review', name: 'Manual Sales Review', price: 0, primary: false, description: 'Sales review for enterprise or multi-location practices.' },
+  lead_revenue_recovery_599: { id: 'lead_revenue_recovery_599', name: 'Revenue Recovery System', price: 599, primary: true, description: 'A focused recovery system for inquiry, follow-up, and booking gaps.' },
+  ai_revenue_command_center_999: { id: 'ai_revenue_command_center_999', name: 'AI Revenue Command Center', price: 999, primary: true, description: 'A full-funnel recovery system for larger or faster-growing med spas.' },
+  manual_sales_review: { id: 'manual_sales_review', name: 'Custom Revenue Recovery Review', price: 0, primary: false, description: 'A custom review for enterprise or 10+ location operations.' },
 } as const;
 
 export const contactCaptureFields = [

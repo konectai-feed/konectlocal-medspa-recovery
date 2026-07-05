@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { fetchReportByToken, createReportViewEvent } from '@/lib/assessment/service';
+import { buildAssessmentReportPresentation, getLocationCountFromAnswers } from '@/lib/assessment/report';
 import { getResultsPageCtaHierarchy } from '@/lib/commerce/results-cta';
 
 export async function GET(request: Request, { params }: { params: { token: string } }) {
@@ -15,8 +16,13 @@ export async function GET(request: Request, { params }: { params: { token: strin
 
   await createReportViewEvent(token);
   const answers = (report.assessment.answers ?? {}) as Record<string, unknown>;
-  const locationCountRaw = answers.locationCount ?? answers.location_count ?? answers.locations;
-  const locationCount = typeof locationCountRaw === 'number' ? locationCountRaw : Number(locationCountRaw ?? 1);
-  const cta = getResultsPageCtaHierarchy({ locationCount: Number.isFinite(locationCount) ? locationCount : 1, packageKey: report.assessment.recommended_package });
-  return NextResponse.json({ ...report, cta });
+  const locationCount = getLocationCountFromAnswers(answers);
+  const cta = getResultsPageCtaHierarchy({ locationCount, packageKey: String(report.assessment.recommended_package ?? '') });
+  const presentation = buildAssessmentReportPresentation({
+    assessment: report.assessment as Record<string, unknown>,
+    lead: report.lead as Record<string, unknown>,
+    cta,
+    bookingUrl: process.env.BOOKING_URL,
+  });
+  return NextResponse.json({ ...report, cta, presentation });
 }

@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   assessmentQuestionLabels,
@@ -120,6 +120,7 @@ async function safeJson<T>(response: Response): Promise<T | null> {
 
 export function AssessmentFlow() {
   const router = useRouter();
+  const cardRef = useRef<HTMLElement | null>(null);
   const [resumeToken, setResumeToken] = useState<string | null>(null);
   const [answers, setAnswers] = useState<AnswersState>({});
   const [contact, setContact] = useState<ContactState>(INITIAL_CONTACT_STATE);
@@ -132,6 +133,16 @@ export function AssessmentFlow() {
 
   const currentStep = STEP_DEFINITIONS[stepIndex];
   const isLastStep = stepIndex === STEP_DEFINITIONS.length - 1;
+
+  const scrollToAssessmentTop = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+      if (typeof cardRef.current?.scrollIntoView === 'function') {
+        cardRef.current.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' });
+      }
+  }, []);
 
   const saveSessionPatch = useCallback(
     async (payload: { answers?: Record<string, string>; currentStep?: number; completedStep?: number }) => {
@@ -216,6 +227,12 @@ export function AssessmentFlow() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isBootstrapping) {
+      scrollToAssessmentTop();
+    }
+  }, [isBootstrapping, scrollToAssessmentTop, stepIndex]);
 
   const validateCurrentStep = useCallback(() => {
     const nextErrors: Record<string, string> = {};
@@ -396,7 +413,7 @@ export function AssessmentFlow() {
   }
 
   return (
-    <section className="rounded-3xl bg-white p-6 shadow-sm md:p-8" aria-label="Revenue recovery assessment">
+    <section ref={cardRef} className="rounded-3xl bg-white p-6 shadow-sm md:p-8" aria-label="Revenue recovery assessment">
       <div className="mb-6">
         <p className="text-sm font-semibold uppercase tracking-[0.12em] text-recovery-green">Step {stepIndex + 1} of {STEP_DEFINITIONS.length}</p>
         <h2 className="mt-2 text-2xl font-bold text-navy">{currentStep.label}</h2>
