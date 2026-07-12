@@ -1,5 +1,5 @@
 import { serverEnv } from '@/lib/env.server';
-import type { AISalesAssessmentSummary } from '@/lib/ai-sales/context';
+import { aiAssessmentContextLoadError, type AISalesAssessmentSummary } from '@/lib/ai-sales/shared';
 
 export type AISalesMessage = {
   role: 'user' | 'assistant';
@@ -26,7 +26,7 @@ export type AISalesRequest = {
 };
 
 const moderationKeywords = ['ignore', 'bypass', 'exploit', 'hack', 'attack', 'malware'];
-const restrictedTopicKeywords = ['medical', 'clinical', 'hipaa', 'treatment', 'diagnosis', 'phi', 'patient record', 'prescription', 'botox', 'filler'];
+const restrictedTopicKeywords = ['medical', 'clinical', 'hipaa', 'treatment', 'diagnosis', 'phi', 'patient record', 'patient records', 'prescription', 'botox', 'filler', 'password', 'credit card', 'card number', 'cvv', 'debit card', 'ssn'];
 
 function moderateMessage(message: string) {
   const normalized = message.toLowerCase();
@@ -83,16 +83,16 @@ function buildScopeLimitReply() {
 }
 
 function buildInitialReply(summary: AISalesAssessmentSummary) {
-  const topLeaks = summary.topRevenueLeaks.slice(0, 3).join(', ');
+  const topLeaks = summary.topRevenueLeaks.slice(0, 3).map((leak) => `${leak.label} (${leak.severityLabel.toLowerCase()})`).join(', ');
   const nextStep = summary.recommendedPlan.emphasizeReview || !summary.recommendedPlan.checkoutEnabled
     ? `Direct checkout is disabled for this result, so the best next step is to schedule a revenue recovery review using ${summary.bookingUrl}.`
     : `Your next step is to activate ${summary.recommendedPlan.name} and move into onboarding.`;
 
-  return `${summary.businessName} has a Revenue Leak Score of ${summary.score}/100, which indicates ${summary.recoveryLevel.toLowerCase()}. Your estimated recovery opportunity is ${formatCurrency(summary.opportunityLow)} to ${formatCurrency(summary.opportunityHigh)} per month, or ${formatCurrency(summary.annualImpactLow)} to ${formatCurrency(summary.annualImpactHigh)} annually, with ${summary.confidenceLevel.toLowerCase()} confidence. The biggest revenue leaks showing up right now are ${topLeaks}. ${summary.recommendedPlan.name} was recommended because ${summary.recommendedPlan.explanation.replace(/\.$/, '').toLowerCase()}. ${nextStep}`;
+  return `${summary.businessName} has a Revenue Leak Score of ${summary.score}/100 across ${summary.locationCount} location${summary.locationCount === 1 ? '' : 's'}, which indicates ${summary.recoveryLevel.toLowerCase()}. Your estimated recovery opportunity is ${formatCurrency(summary.opportunityLow)} to ${formatCurrency(summary.opportunityHigh)} per month, or ${formatCurrency(summary.annualImpactLow)} to ${formatCurrency(summary.annualImpactHigh)} annually, with ${summary.confidenceLevel.toLowerCase()} confidence. The biggest revenue leaks showing up right now are ${topLeaks}. ${summary.recommendedPlan.name} was recommended because ${summary.recommendedPlan.justification.replace(/\.$/, '').toLowerCase()}. ${nextStep} These estimates are directional and not guaranteed.`;
 }
 
 function buildRecommendationReply(summary: AISalesAssessmentSummary) {
-  return `${summary.recommendedPlan.name} was recommended because ${summary.recommendedPlan.explanation.replace(/\.$/, '').toLowerCase()}. It lines up with the main leaks in ${summary.topRevenueLeaks.slice(0, 2).join(' and ').toLowerCase()} and the size of your current recovery opportunity.`;
+  return `${summary.recommendedPlan.name} was recommended because ${summary.recommendedPlan.justification.replace(/\.$/, '').toLowerCase()}. It lines up with the main leaks in ${summary.topRevenueLeaks.slice(0, 2).map((leak) => leak.label).join(' and ').toLowerCase()} and the size of your current recovery opportunity.`;
 }
 
 function buildFixFirstReply(summary: AISalesAssessmentSummary) {
@@ -101,16 +101,16 @@ function buildFixFirstReply(summary: AISalesAssessmentSummary) {
     return 'Start with the highest-friction part of your lead-to-booking flow, then tighten follow-up and no-show recovery based on what is hardest to track consistently today.';
   }
 
-  return `Fix ${primaryLeak.toLowerCase()} first because it is the largest visible revenue leak in this assessment. After that, address ${secondaryLeak ? secondaryLeak.toLowerCase() : 'your next largest follow-up gap'} to compound the recovery impact.`;
+  return `Fix ${primaryLeak.label.toLowerCase()} first because it is the largest visible revenue leak in this assessment. After that, address ${secondaryLeak ? secondaryLeak.label.toLowerCase() : 'your next largest follow-up gap'} to compound the recovery impact.`;
 }
 
 function buildOpportunityReply(summary: AISalesAssessmentSummary) {
-  return `Your opportunity range is estimated from the business assumptions in the assessment, including inquiry volume, booking rate, no-show rate, average client value, and dormant patient recovery potential. In your current result, that produces an estimate of ${formatCurrency(summary.opportunityLow)} to ${formatCurrency(summary.opportunityHigh)} per month and ${formatCurrency(summary.annualImpactLow)} to ${formatCurrency(summary.annualImpactHigh)} per year.`;
+  return `Your opportunity range is estimated from the business assumptions in this assessment: ${summary.assumptionsUsed.monthlyInquiries} monthly inquiries, ${formatCurrency(summary.assumptionsUsed.averageClientValue)} average client value, ${Math.round(summary.assumptionsUsed.bookingRate * 100)}% booking rate, ${Math.round(summary.assumptionsUsed.noShowRate * 100)}% no-show rate, and a dormant patient pool of ${summary.assumptionsUsed.dormantPatientPool}. In your current result, that produces an estimate of ${formatCurrency(summary.opportunityLow)} to ${formatCurrency(summary.opportunityHigh)} per month and ${formatCurrency(summary.annualImpactLow)} to ${formatCurrency(summary.annualImpactHigh)} per year.`;
 }
 
 function buildActivationReply(summary: AISalesAssessmentSummary) {
   if (summary.recommendedPlan.emphasizeReview || !summary.recommendedPlan.checkoutEnabled) {
-    return `This result is routed to a revenue recovery review before purchase. Direct checkout is disabled because the recommended plan needs tailored scoping first. Use ${summary.bookingUrl} to schedule the review, and KonectLocal can walk you through package fit, rollout scope, and onboarding timing.`;
+    return `This result is routed to a revenue recovery review before purchase. Direct checkout is disabled because the package status is ${summary.recommendedPlan.status.replaceAll('_', ' ')} and the recommended plan needs tailored scoping first. Use ${summary.bookingUrl} to schedule the review, and KonectLocal can walk you through package fit, rollout scope, and onboarding timing.`;
   }
 
   return `After you activate ${summary.recommendedPlan.name}, the next steps are checkout, onboarding setup, and launch preparation. Pricing on this recommendation is ${formatCurrency(summary.recommendedPlan.monthlyPrice)} per month with a ${formatCurrency(summary.recommendedPlan.setupFee)} setup fee.`;
@@ -118,10 +118,10 @@ function buildActivationReply(summary: AISalesAssessmentSummary) {
 
 function buildGenericReply(summary: AISalesAssessmentSummary) {
   if (summary.recommendedPlan.emphasizeReview || !summary.recommendedPlan.checkoutEnabled) {
-    return `I can explain your score, opportunity estimate, top revenue leaks, and why this result requires a revenue recovery review before activation. If you want to move forward, the next step is scheduling the review at ${summary.bookingUrl}.`;
+    return `I can explain your score, opportunity estimate, top revenue leaks, positive findings, assumptions used, and why this result requires a revenue recovery review before activation. If you want to move forward, the next step is scheduling the review at ${summary.bookingUrl}.`;
   }
 
-  return `I can help explain your score, opportunity estimate, top revenue leaks, recommended plan, and what happens after activation. If you want to move forward now, the next step is activating ${summary.recommendedPlan.name}.`;
+  return `I can help explain your score, opportunity estimate, top revenue leaks, positive findings, assumptions used, recommended plan, and what happens after activation. If you want to move forward now, the next step is activating ${summary.recommendedPlan.name}.`;
 }
 
 export function createAISalesAdapter(provider = serverEnv.AI_SALES_PROVIDER) {
@@ -144,9 +144,9 @@ export function createAISalesAdapter(provider = serverEnv.AI_SALES_PROVIDER) {
 
       if (!summary) {
         return {
-          reply: 'I can help explain your assessment result, revenue leak score, opportunity estimate, recommended plan, activation guidance, and next steps.',
-          action,
-          safe: true,
+          reply: aiAssessmentContextLoadError,
+          action: 'schedule_review',
+          safe: false,
           provider,
           model: serverEnv.AI_SALES_MODEL,
         };

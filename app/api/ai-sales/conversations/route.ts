@@ -6,6 +6,7 @@ import { hashToken } from '@/lib/assessment/service';
 import { recordSessionEvent } from '@/lib/assessment/service';
 import { buildAISalesAssessmentSummary } from '@/lib/ai-sales/context';
 import { createAISalesAdapter } from '@/lib/ai-sales/provider';
+import { aiAssessmentContextLoadError } from '@/lib/ai-sales/shared';
 
 const chatMessageSchema = z.object({
   role: z.enum(['user', 'assistant']),
@@ -32,8 +33,8 @@ export async function POST(request: Request) {
     leadId: parsed.data.leadId,
     assessmentId: parsed.data.assessmentId ?? null,
   });
-  if (parsed.data.reportToken && !assessmentSummary) {
-    return NextResponse.json({ error: 'Report context not found' }, { status: 404 });
+  if (!assessmentSummary) {
+    return NextResponse.json({ error: aiAssessmentContextLoadError }, { status: 404 });
   }
 
   const supabase = createSupabaseServiceRoleClient();

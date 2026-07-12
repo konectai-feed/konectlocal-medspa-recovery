@@ -1,27 +1,7 @@
-import { fetchReportByToken } from '@/lib/assessment/service';
+import { fetchAssessmentContextForAi } from '@/lib/assessment/service';
 import { buildAssessmentReportPresentation, getLocationCountFromAnswers } from '@/lib/assessment/report';
 import { getResultsPageCtaHierarchy } from '@/lib/commerce/results-cta';
-
-export type AISalesAssessmentSummary = {
-  businessName: string;
-  score: number;
-  recoveryLevel: string;
-  opportunityLow: number;
-  opportunityHigh: number;
-  annualImpactLow: number;
-  annualImpactHigh: number;
-  confidenceLevel: string;
-  topRevenueLeaks: string[];
-  recommendedPlan: {
-    name: string;
-    explanation: string;
-    monthlyPrice: number | null;
-    setupFee: number | null;
-    checkoutEnabled: boolean;
-    emphasizeReview: boolean;
-  };
-  bookingUrl: string;
-};
+import { type AISalesAssessmentSummary } from '@/lib/ai-sales/shared';
 
 export async function buildAISalesAssessmentSummary({
   reportToken,
@@ -32,20 +12,8 @@ export async function buildAISalesAssessmentSummary({
   leadId: string;
   assessmentId?: string | null;
 }) {
-  if (!reportToken) {
-    return null;
-  }
-
-  const report = await fetchReportByToken(reportToken);
+  const report = await fetchAssessmentContextForAi({ reportToken, leadId, assessmentId });
   if (!report) {
-    return null;
-  }
-
-  if (String(report.lead.id) !== leadId) {
-    return null;
-  }
-
-  if (assessmentId && String(report.assessment.id) !== assessmentId) {
     return null;
   }
 
@@ -64,6 +32,8 @@ export async function buildAISalesAssessmentSummary({
 
   return {
     businessName: String(report.lead.business_name ?? 'Your med spa'),
+    locationCount,
+    assessmentAnswers: report.assessment.answers as Record<string, unknown>,
     score: presentation.score,
     recoveryLevel: presentation.recoveryLevel,
     opportunityLow: presentation.opportunityLow,
@@ -71,14 +41,22 @@ export async function buildAISalesAssessmentSummary({
     annualImpactLow: presentation.annualImpactLow,
     annualImpactHigh: presentation.annualImpactHigh,
     confidenceLevel: presentation.confidenceLevel,
-    topRevenueLeaks: presentation.topRevenueLeaks.map((leak) => leak.label),
+    positiveFindings: presentation.positiveFindings,
+    assumptionsUsed: presentation.assumptionsUsed,
+    topRevenueLeaks: presentation.topRevenueLeaks.map((leak) => ({
+      label: leak.label,
+      severityLabel: leak.severityLabel,
+      severityPercent: leak.severityPercent,
+    })),
     recommendedPlan: {
+      slug: presentation.recommendedPackage.slug,
       name: presentation.recommendedPackage.name,
-      explanation: presentation.recommendedPackage.explanation,
+      justification: presentation.recommendedPackage.explanation,
       monthlyPrice: presentation.recommendedPackage.monthlyPrice,
       setupFee: presentation.recommendedPackage.setupFee,
       checkoutEnabled: presentation.recommendedPackage.checkoutEnabled,
       emphasizeReview: presentation.recommendedPackage.emphasizeReview,
+      status: presentation.recommendedPackage.checkoutEnabled ? 'checkout_enabled' : 'manual_review_required',
     },
     bookingUrl: presentation.bookingUrl,
   } satisfies AISalesAssessmentSummary;
