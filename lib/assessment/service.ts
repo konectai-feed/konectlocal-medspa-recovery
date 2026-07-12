@@ -229,6 +229,62 @@ export async function fetchReportByToken(token: string) {
   return { reportLink, assessment, lead };
 }
 
+export async function fetchAssessmentContextForAi({
+  leadId,
+  assessmentId,
+  reportToken,
+}: {
+  leadId: string;
+  assessmentId?: string | null;
+  reportToken?: string;
+}) {
+  if (reportToken) {
+    const report = await fetchReportByToken(reportToken);
+    if (!report) {
+      return null;
+    }
+
+    if (String(report.lead.id) !== leadId) {
+      return null;
+    }
+
+    if (assessmentId && String(report.assessment.id) !== assessmentId) {
+      return null;
+    }
+
+    return report;
+  }
+
+  const supabase = createSupabaseServiceRoleClient();
+  const assessmentQuery = supabase
+    .from('assessments')
+    .select('id,lead_id,session_id,recovery_score,recovery_level,opportunity_low,opportunity_high,confidence_score,confidence_level,primary_leak,secondary_leak,third_leak,recommended_package,calculation_snapshot,original_assumptions,edited_assumptions,formula_version,benchmark_version,answers,created_at');
+
+  const assessmentResult = assessmentId
+    ? await assessmentQuery.eq('id', assessmentId).eq('lead_id', leadId).maybeSingle()
+    : await assessmentQuery.eq('lead_id', leadId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+  if (assessmentResult.error || !assessmentResult.data) {
+    return null;
+  }
+
+  const { data: lead, error: leadError } = await supabase
+    .from('leads')
+    .select('id,business_name,email,phone,website,prior_campaign_opener')
+    .eq('id', leadId)
+    .single();
+
+  if (leadError || !lead) {
+    return null;
+  }
+
+  return {
+    reportLink: null,
+    assessment: assessmentResult.data,
+    lead,
+  };
+}
+
 export async function recalculateAssessmentByReportToken(token: string, editedAssumptions: EditedAssumptions) {
   const supabase = createSupabaseServiceRoleClient();
   const tokenHash = hashToken(token);

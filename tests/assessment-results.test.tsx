@@ -84,6 +84,12 @@ describe('assessment results page', () => {
       if (key === 'POST /api/assessment/recalculate') {
         return jsonResponse({ ok: true });
       }
+      if (key === 'POST /api/ai-sales/conversations') {
+        return jsonResponse({ conversationToken: 'conversation-token', reply: 'Your results show a strong opportunity in missed inquiries and no-shows.' });
+      }
+      if (key === 'POST /api/ai-sales/conversations/conversation-token/messages') {
+        return jsonResponse({ reply: 'Fix missed inquiries first, then tighten no-show recovery and follow-up.' });
+      }
       return jsonResponse({ error: 'Unexpected request' }, 500);
     }));
   });
@@ -154,6 +160,141 @@ describe('assessment results page', () => {
     expect(screen.queryByRole('button', { name: 'Activate My Recommended Plan' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Discuss My Results With AI' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Schedule Revenue Recovery Review' })).toBeTruthy();
+  });
+
+  it('starts the AI chat with the preset explanation request and renders the response history', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const key = `${init?.method ?? 'GET'} ${String(input)}`;
+      if (key === 'GET /api/report/report-token') {
+        return jsonResponse(buildReport());
+      }
+      if (key === 'POST /api/ai-sales/conversations') {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          leadId: 'lead-1',
+          assessmentId: 'assessment-1',
+          reportToken: 'report-token',
+          message: 'Please explain my assessment results and recommended recovery plan.',
+          messages: [{ role: 'user', content: 'Please explain my assessment results and recommended recovery plan.' }],
+        });
+        return jsonResponse({ conversationToken: 'conversation-token', reply: 'Here is your assessment walkthrough.' });
+      }
+      return jsonResponse({ error: 'Unexpected request' }, 500);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AssessmentResultsPage params={{ token: 'report-token' }} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Discuss My Results With AI' })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discuss My Results With AI' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Here is your assessment walkthrough.')).toBeTruthy();
+    });
+
+    expect(screen.getByText('Please explain my assessment results and recommended recovery plan.')).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Ask KonectLocal AI a follow-up question' })).toBeTruthy();
+  });
+
+  it('sends follow-up questions and suggested questions through the interactive chat', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const key = `${init?.method ?? 'GET'} ${String(input)}`;
+      if (key === 'GET /api/report/report-token') {
+        return jsonResponse(buildReport());
+      }
+      if (key === 'POST /api/ai-sales/conversations') {
+        return jsonResponse({ conversationToken: 'conversation-token', reply: 'Here is your assessment walkthrough.' });
+      }
+      if (key === 'POST /api/ai-sales/conversations/conversation-token/messages') {
+        const payload = JSON.parse(String(init?.body));
+        if (payload.message === 'What should I fix first?') {
+          return jsonResponse({ reply: 'Start with missed inquiries first.' });
+        }
+        expect(payload).toMatchObject({
+          reportToken: 'report-token',
+          message: 'How was my opportunity estimated?',
+        });
+        expect(payload.messages).toEqual([
+          { role: 'user', content: 'Please explain my assessment results and recommended recovery plan.' },
+          { role: 'assistant', content: 'Here is your assessment walkthrough.' },
+          { role: 'user', content: 'How was my opportunity estimated?' },
+        ]);
+        return jsonResponse({ reply: 'We estimate opportunity from inquiries, booking rate, no-shows, and dormant patient recovery assumptions.' });
+      }
+      return jsonResponse({ error: 'Unexpected request' }, 500);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AssessmentResultsPage params={{ token: 'report-token' }} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Discuss My Results With AI' })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discuss My Results With AI' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Ask KonectLocal AI a follow-up question' })).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Ask KonectLocal AI a follow-up question' }), {
+      target: { value: 'How was my opportunity estimated?' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/We estimate opportunity from inquiries/i)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'What should I fix first?' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Start with missed inquiries first.')).toBeTruthy();
+    });
+  });
+
+  it('shows loading and error states for chat requests', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const key = `${init?.method ?? 'GET'} ${String(input)}`;
+      if (key === 'GET /api/report/report-token') {
+        return jsonResponse(buildReport());
+      }
+      if (key === 'POST /api/ai-sales/conversations') {
+        return jsonResponse({ conversationToken: 'conversation-token', reply: 'Here is your assessment walkthrough.' });
+      }
+      if (key === 'POST /api/ai-sales/conversations/conversation-token/messages') {
+        return jsonResponse({ error: 'AI service unavailable' }, 500);
+      }
+      return jsonResponse({ error: 'Unexpected request' }, 500);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<AssessmentResultsPage params={{ token: 'report-token' }} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Discuss My Results With AI' })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discuss My Results With AI' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: 'Ask KonectLocal AI a follow-up question' })).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Ask KonectLocal AI a follow-up question' }), {
+      target: { value: 'How was my opportunity estimated?' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(screen.getByRole('button', { name: 'Sending...' }).hasAttribute('disabled')).toBe(true);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('AI service unavailable');
+    });
+
+    expect((screen.getByRole('textbox', { name: 'Ask KonectLocal AI a follow-up question' }) as HTMLInputElement).value).toBe('How was my opportunity estimated?');
   });
 
   it('refreshes the displayed opportunities after recalculation', async () => {

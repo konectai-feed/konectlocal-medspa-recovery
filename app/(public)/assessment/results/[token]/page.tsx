@@ -6,6 +6,20 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+const aiDiscussionStarter = 'Please explain my assessment results and recommended recovery plan.';
+
+const suggestedQuestions = [
+  'Why was this plan recommended?',
+  'What should I fix first?',
+  'How was my opportunity estimated?',
+  'What happens after I activate?',
+] as const;
+
 type ReportResponse = {
   assessment: {
     recommended_package: string;
@@ -113,8 +127,12 @@ export default function AssessmentResultsPage({ params }: { params: { token: str
   const [bookingRate, setBookingRate] = useState('');
   const [noShowRate, setNoShowRate] = useState('');
   const [dormantPool, setDormantPool] = useState('');
-  const [aiReply, setAiReply] = useState<string | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatStatus, setChatStatus] = useState('AI chat is ready.');
+  const [conversationToken, setConversationToken] = useState<string | null>(null);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   const syncAssumptionInputs = useCallback((nextReport: ReportResponse) => {
@@ -166,6 +184,15 @@ export default function AssessmentResultsPage({ params }: { params: { token: str
       mounted = false;
     };
   }, [loadReport]);
+
+  useEffect(() => {
+    setChatMessages([]);
+    setChatInput('');
+    setChatError(null);
+    setChatLoading(false);
+    setChatStatus('AI chat is ready.');
+    setConversationToken(null);
+  }, [params.token]);
 
   const applyAssumptionEdits = async () => {
     setSaving(true);
@@ -224,34 +251,66 @@ export default function AssessmentResultsPage({ params }: { params: { token: str
     }
   };
 
-  const handleDiscussWithAi = async () => {
-    if (!report) {
+  const sendChatMessage = useCallback(async (message: string) => {
+    const trimmedMessage = message.trim();
+    if (!report || !trimmedMessage || chatLoading) {
       return;
     }
-    setAiLoading(true);
-    setAiReply(null);
-    setError(null);
+
+    const visibleMessages = [...chatMessages, { role: 'user' as const, content: trimmedMessage }];
+    const startingConversation = !conversationToken;
+
+    setChatLoading(true);
+    setChatError(null);
+    setChatStatus(startingConversation ? 'Starting AI discussion...' : 'Sending follow-up question...');
+
     try {
-      const response = await fetch('/api/ai-sales/conversations', {
+      const response = await fetch(startingConversation ? '/api/ai-sales/conversations' : `/api/ai-sales/conversations/${conversationToken}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           leadId: report.presentation.leadId,
           assessmentId: report.presentation.assessmentId,
-          message: 'Please explain my assessment results and recommended recovery plan.',
+          reportToken: params.token,
+          messages: visibleMessages,
+          message: trimmedMessage,
         }),
       });
       const json = await response.json().catch(() => null);
       if (!response.ok || !json?.reply) {
-        throw new Error((json as { error?: string } | null)?.error ?? 'Unable to start AI discussion');
+        throw new Error((json as { error?: string } | null)?.error ?? 'Unable to send AI message');
       }
-      setAiReply(String(json.reply));
+
+      if (startingConversation && typeof json.conversationToken === 'string') {
+        setConversationToken(json.conversationToken);
+      }
+
+      setChatMessages((currentMessages) => [
+        ...currentMessages,
+        { role: 'user', content: trimmedMessage },
+        { role: 'assistant', content: String(json.reply) },
+      ]);
+      setChatInput('');
+      setChatStatus('AI response added to chat history.');
     } catch (aiError) {
-      setError((aiError as Error).message);
+      setChatError((aiError as Error).message);
+      setChatStatus('AI chat failed to respond.');
     } finally {
-      setAiLoading(false);
+      setChatLoading(false);
     }
-  };
+  }, [chatLoading, chatMessages, conversationToken, params.token, report]);
+
+  const handleDiscussWithAi = useCallback(async () => {
+    await sendChatMessage(aiDiscussionStarter);
+  }, [sendChatMessage]);
+
+  const handleSuggestedQuestion = useCallback(async (question: string) => {
+    await sendChatMessage(question);
+  }, [sendChatMessage]);
+
+  const handleChatSubmit = useCallback(async () => {
+    await sendChatMessage(chatInput);
+  }, [chatInput, sendChatMessage]);
 
   const ctaActions = useMemo(() => {
     if (!report) {
@@ -384,19 +443,95 @@ export default function AssessmentResultsPage({ params }: { params: { token: str
                     {checkoutLoading ? 'Opening checkout...' : 'Activate My Recommended Plan'}
                   </Button>
                 ) : null}
-                <Button type="button" variant="outline" className="w-full" disabled={aiLoading} onClick={() => { void handleDiscussWithAi(); }}>
-                  {aiLoading ? 'Starting AI discussion...' : 'Discuss My Results With AI'}
-                </Button>
+                {chatMessages.length === 0 ? (
+                  <Button type="button" variant="outline" className="w-full" disabled={chatLoading} onClick={() => { void handleDiscussWithAi(); }}>
+                    {chatLoading ? 'Starting AI discussion...' : 'Discuss My Results With AI'}
+                  </Button>
+                ) : null}
                 <Button asChild type="button" variant="outline" className="w-full border-slate-300 bg-white text-navy hover:bg-slate-50">
                   <Link href={presentation.bookingUrl}>Schedule Revenue Recovery Review</Link>
                 </Button>
               </div>
-              {aiReply ? (
-                <div className="mt-5 rounded-2xl border border-aqua/30 bg-aqua/10 p-4 text-sm text-navy">
-                  <p className="font-semibold">AI explanation</p>
-                  <p className="mt-2">{aiReply}</p>
+
+              <div className="mt-5 rounded-2xl border border-aqua/30 bg-aqua/10 p-4 text-sm text-navy">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-semibold">AI explanation chat</p>
+                    <p className="mt-2 text-navy-secondary">Ask follow-up questions about your assessment result, revenue leak score, opportunity estimate, recommended plan, activation flow, or next steps. KonectLocal AI does not provide medical advice or treatment guidance.</p>
+                  </div>
                 </div>
-              ) : null}
+
+                <p className="sr-only" role="status" aria-live="polite">{chatStatus}</p>
+
+                <div className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4">
+                  {chatMessages.length === 0 ? (
+                    <p className="text-sm text-navy-secondary">Start the conversation to get an AI walkthrough of your results and recovery plan.</p>
+                  ) : (
+                    <div className="space-y-3" role="log" aria-live="polite" aria-relevant="additions text">
+                      {chatMessages.map((message, index) => (
+                        <div key={`${message.role}-${index}`} className={`flex ${message.role === 'assistant' ? 'justify-start' : 'justify-end'}`}>
+                          <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${message.role === 'assistant' ? 'bg-aqua/20 text-navy' : 'bg-navy text-white'}`}>
+                            <p className="text-xs font-semibold uppercase tracking-[0.08em] opacity-70">{message.role === 'assistant' ? 'KonectLocal AI' : 'You'}</p>
+                            <p className="mt-2 whitespace-pre-line">{message.content}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {chatLoading ? (
+                    <p className="mt-3 text-sm text-navy-secondary" role="status" aria-live="polite">KonectLocal AI is drafting a response...</p>
+                  ) : null}
+
+                  {chatError ? (
+                    <div className="mt-3 rounded-xl border border-critical-red/30 bg-critical-red/10 p-3 text-sm text-critical-red" role="alert">
+                      {chatError}
+                    </div>
+                  ) : null}
+                </div>
+
+                {chatMessages.length > 0 ? (
+                  <>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {suggestedQuestions.map((question) => (
+                        <button
+                          key={question}
+                          type="button"
+                          className="rounded-full border border-aqua/40 bg-white px-3 py-2 text-sm font-medium text-navy transition hover:border-aqua hover:bg-aqua/10 disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={chatLoading}
+                          onClick={() => {
+                            void handleSuggestedQuestion(question);
+                          }}
+                        >
+                          {question}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                      <label className="sr-only" htmlFor="results-ai-chat-input">Ask KonectLocal AI a follow-up question</label>
+                      <input
+                        id="results-ai-chat-input"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-navy shadow-sm focus:border-aqua focus:outline-none focus:ring-2 focus:ring-aqua/30 disabled:cursor-not-allowed disabled:bg-slate-100"
+                        type="text"
+                        value={chatInput}
+                        placeholder="Ask a follow-up question about your results or next steps"
+                        disabled={chatLoading}
+                        onChange={(event) => setChatInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void handleChatSubmit();
+                          }
+                        }}
+                      />
+                      <Button type="button" className="sm:w-auto" disabled={chatLoading || chatInput.trim().length === 0} onClick={() => { void handleChatSubmit(); }}>
+                        {chatLoading ? 'Sending...' : 'Send'}
+                      </Button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
             </SectionCard>
           </div>
         </div>
