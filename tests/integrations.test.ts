@@ -60,9 +60,90 @@ describe('adapter integrations', () => {
 
   it('moderates AI sales input and returns a safe response', async () => {
     const adapter = createAISalesAdapter('mock');
-    const result = await adapter.generateReply({ message: 'I want to buy the recovery package', leadContext: { leadId: 'lead-1', packageKey: 'lead_revenue_recovery' } });
+    const result = await adapter.generateReply({ message: 'I want to buy the recovery package', leadContext: { leadId: 'lead-1' } });
     expect(result.safe).toBe(true);
     expect(result.action).toBe('open_checkout');
+  });
+
+  it('explains assessment results using the recommended plan and revenue context', async () => {
+    const adapter = createAISalesAdapter('mock');
+    const result = await adapter.generateReply({
+      message: 'Please explain my assessment results and recommended recovery plan.',
+      messages: [{ role: 'user', content: 'Please explain my assessment results and recommended recovery plan.' }],
+      leadContext: {
+        leadId: 'lead-1',
+        assessmentId: 'assessment-1',
+        assessmentSummary: {
+          businessName: 'Glow Aesthetics',
+          score: 88,
+          recoveryLevel: 'Critical recovery opportunity',
+          opportunityLow: 1500,
+          opportunityHigh: 2000,
+          annualImpactLow: 18000,
+          annualImpactHigh: 24000,
+          confidenceLevel: 'Medium',
+          topRevenueLeaks: ['Missed inquiries', 'Unbooked lead follow-up', 'Patient reactivation'],
+          recommendedPlan: {
+            name: 'Revenue Recovery System',
+            explanation: 'Revenue Recovery System was recommended because your largest recovery opportunities are in missed inquiries and unbooked lead follow-up.',
+            monthlyPrice: 599,
+            setupFee: 450,
+            checkoutEnabled: true,
+            emphasizeReview: false,
+          },
+          bookingUrl: 'https://booking.example.com/review',
+        },
+      },
+    });
+
+    expect(result.safe).toBe(true);
+    expect(result.reply).toContain('Revenue Leak Score of 88/100');
+    expect(result.reply).toContain('Missed inquiries, Unbooked lead follow-up, Patient reactivation');
+    expect(result.reply).toContain('Revenue Recovery System');
+  });
+
+  it('guides manual-review assessments toward scheduling instead of checkout', async () => {
+    const adapter = createAISalesAdapter('mock');
+    const result = await adapter.generateReply({
+      message: 'What happens after I activate?',
+      leadContext: {
+        leadId: 'lead-1',
+        assessmentSummary: {
+          businessName: 'Glow Aesthetics',
+          score: 91,
+          recoveryLevel: 'Critical recovery opportunity',
+          opportunityLow: 4000,
+          opportunityHigh: 5500,
+          annualImpactLow: 48000,
+          annualImpactHigh: 66000,
+          confidenceLevel: 'High',
+          topRevenueLeaks: ['Missed inquiries', 'No-show recovery'],
+          recommendedPlan: {
+            name: 'Custom Revenue Recovery Review',
+            explanation: 'A tailored review is recommended before activation.',
+            monthlyPrice: null,
+            setupFee: null,
+            checkoutEnabled: false,
+            emphasizeReview: true,
+          },
+          bookingUrl: 'https://booking.example.com/review',
+        },
+      },
+    });
+
+    expect(result.safe).toBe(true);
+    expect(result.action).toBe('manual_review');
+    expect(result.reply).toContain('Direct checkout is disabled');
+    expect(result.reply).toContain('schedule the review');
+  });
+
+  it('refuses medical and HIPAA guidance requests inside the sales chat', async () => {
+    const adapter = createAISalesAdapter('mock');
+    const result = await adapter.generateReply({ message: 'Can you give medical treatment advice and HIPAA guidance for this result?' });
+
+    expect(result.safe).toBe(false);
+    expect(result.reply).toContain('I can only help with your assessment result');
+    expect(result.reply).toContain('I can’t provide medical advice');
   });
 
   it('maps onboarding lifecycle attributes for Brevo sync jobs', () => {
