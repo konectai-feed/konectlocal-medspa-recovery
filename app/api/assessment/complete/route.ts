@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { assessmentCompleteSchema } from '@/lib/assessment/validation';
-import { completeAssessmentSession, generateToken, hashToken } from '@/lib/assessment/service';
+import { completeAssessmentSession, findAssessmentSessionByToken, generateToken, hashToken } from '@/lib/assessment/service';
 import { checkRateLimit, getRequestIp } from '@/lib/rate-limit';
 import { createSupabaseServiceRoleClient } from '@/lib/supabase/service-role';
 import { createBrevoAdapter } from '@/lib/integrations/brevo';
@@ -12,9 +12,8 @@ async function ensureReportToken(result: Awaited<ReturnType<typeof completeAsses
   const assessment = 'assessment' in result ? result.assessment : null;
   if (!assessment?.id) throw new Error('Assessment completed but report could not be resolved');
 
-  // Report tokens are intentionally stored only as hashes, so an existing raw token
-  // cannot be recovered. Issue an additional active link instead of invalidating the
-  // prospect's previous emailed/bookmarked report URL.
+  // Raw report tokens are intentionally not stored. On a completion retry, issue
+  // another active token instead of invalidating a previously emailed/bookmarked URL.
   const reportToken = generateToken();
   const supabase = createSupabaseServiceRoleClient();
   const { error } = await supabase.from('report_links').insert([{
@@ -26,21 +25,15 @@ async function ensureReportToken(result: Awaited<ReturnType<typeof completeAsses
   return reportToken;
 }
 
-async function syncCompletedAssessmentToBrevo(
-  result: Awaited<ReturnType<typeof completeAssessmentSession>>,
-  reportToken: string,
-  origin: string,
-) {
-  const assessment = 'assessmentResult' in result ? result.assessmentResult : result.assessment;
-  const assessmentId = 'assessmentResult' in result ? null : result.assessment?.id;
-  const sessionAssessmentId = assessmentId ?? ('id' in assessment ? assessment.id : null);
-  if (!sessionAssessmentId) return;
+async function syncCompletedAssessmentToBrevo(resumeToken: string, reportToken: string, origin: string) {
+  const session = await findAssessmentSessionByToken(resumeToken);
+  if (!session?.id) return;
 
   const supabase = createSupabaseServiceRoleClient();
   const { data: storedAssessment } = await supabase
     .from('assessments')
     .select('id,lead_id,recovery_score,recovery_level,opportunity_low,opportunity_high,primary_leak,secondary_leak,recommended_package')
-    .eq('id', sessionAssessmentId)
+    .eq('session_id', session.id)
     .single();
   if (!storedAssessment?.lead_id) return;
 
@@ -53,13 +46,12 @@ async function syncCompletedAssessmentToBrevo(
 
   const completedListId = Number(serverEnv.BREVO_LIST_ASSESSMENT_COMPLETED);
   const reportUrl = `${origin}/assessment/results/${encodeURIComponent(reportToken)}`;
-  const listIds = Number.isFinite(completedListId) ? [completedListId] : [];
 
-  // Best-effort CRM/nurture handoff. Assessment/report delivery must not fail just
-  // because the marketing provider is temporarily unavailable.
+  // Best-effort nurture handoff. A temporary marketing-provider failure must never
+  // prevent the prospect from receiving/viewing the assessment result.
   await createBrevoAdapter().upsertContact({
     email: lead.email,
-    listIds,
+    listIds: Number.isFinite(completedListId) ? [completedListId] : [],
     attributes: {
       BUSINESS_NAME: lead.business_name ?? '',
       ASSESSMENT_STATUS: 'Completed',
@@ -91,7 +83,7 @@ export async function POST(request: Request) {
   try {
     const complete = await completeAssessmentSession(result.data.resumeToken);
     const reportToken = await ensureReportToken(complete);
-    await syncCompletedAssessmentToBrevo(complete, reportToken, new URL(request.url).origin).catch(() => undefined);
+    await syncCompletedAssessmentToBrevo(result.data.resumeToken, reportToken, new URL(request.url).origin).catch(() => undefined);
     return NextResponse.json({ ...complete, reportToken });
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 400 });
